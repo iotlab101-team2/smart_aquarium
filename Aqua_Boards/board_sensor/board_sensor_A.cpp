@@ -173,7 +173,9 @@ void setup() {
     http.begin(htpClient, buf);
 
     //여기부터 센서 관련 설정
-
+    
+    val = analogRead(A0); //조도 
+  
     Serial.println("Runtime Starting");  
 }
 
