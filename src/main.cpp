@@ -48,7 +48,7 @@ int critical_val; // 임계 조도
 int feed_num; // 먹이 준 회수
 int feed_cycle; // 먹이 주는 주기
 char *status;
-char *status_color[3] = {"green","yellow","red"}; // 3가지 상태 존재.
+//char *status_color[3] = {"green","yellow","red"}; // 3가지 상태 존재.
 char LED_status[4] = {"OFF"};
 int sta = 0;
 
@@ -140,7 +140,9 @@ IRAM_ATTR void GPIO0() {
 }
 
 void neo_up_down() {
-  int R, G, B = 0;
+  int R = 0;
+  int G = 0;
+  int B = 0;
   for (int i = 0; i <255; i++) {
     if (i % 30 == 0) {
       R = i;
@@ -170,17 +172,29 @@ void neo_up_down() {
 }
 
 void neo(int val) {
-    int R, B, G = 0;
+    int R = 0;
+    int G = 0;
+    int B = 0;
     if (val < 50) {
-        R, B, G = 255;
+        R = 255;
+        B = 255;
+        G = 255;
     } else if (val < 150) {
-        R, B, G = 200;
+        R = 200;
+        B = 200;
+        G = 200;
     } else if (val < 300) {
-        R, B, G = 150;
+        R = 150;
+        G = 150;
+        B = 150;
     } else if (val < 400) {
-        R, B, G = 50;
+        R = 50;
+        G = 50;
+        B = 50;
     } else if (val < 500) {
-        R, B, G = 0;
+        R = 0;
+        B = 0;
+        G = 0;
     }
     for (int i = 0; i < ledNum; i++) {        
         pixels.setPixelColor(i, pixels.Color(R,G,B));
@@ -191,10 +205,12 @@ void neo(int val) {
 void state_led() {
     if (critical_temp > temp && critical_env > env) {
         sta = 0; 
-    } else if (critical_temp >temp || critical_env > env){
+    } else if (critical_temp >temp){
         sta = 1;
-    } else {
+    } else if (critical_env > env){
         sta = 2;
+    } else {
+        sta = 3;
     }
     Serial.println(sta);
 }
@@ -285,15 +301,23 @@ void loop() {
             State_pixels.setPixelColor(i, State_pixels.Color(0,255,0)); // 초록색
         }
     } else if (sta == 1) {
-        for (int i = 0; i < 4; i++) {        
-            State_pixels.setPixelColor(i, State_pixels.Color(255,255,0)); // 노란색
+        for (int i = 0; i < 4; i++) {
+            if (i == 1 || i == 2) {
+                State_pixels.setPixelColor(i, State_pixels.Color(255,255,0)); // 노란색
+            }
+        }
+    } else if (sta == 2){
+        for (int i = 0; i < 4; i++) {
+            if (i == 1 || i == 4){
+                State_pixels.setPixelColor(i, State_pixels.Color(255,255,0)); // 노란색
+            }    
+            
         }
     } else {
-        for (int i = 0; i < 4; i++) {        
+        for (int i = 0; i < 4; i++) {
             State_pixels.setPixelColor(i, State_pixels.Color(255,0,0)); // 빨간색
         }
     }
-    
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
