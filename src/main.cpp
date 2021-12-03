@@ -15,8 +15,8 @@
 #define             RESET_PIN 0
 char                eRead[30];
 #if NO_CAP == 1
-  char                ssid[30] = "Phone";
-  char                password[30] = "1234567890";
+  char                ssid[30] = "IoT518";
+  char                password[30] = "iot123456";
   char                mqtt[30] = "54.90.184.120"; 
 #else
   char                ssid[30];
@@ -52,7 +52,9 @@ char *status_color[3] = {"green","yellow","red"}; // 3가지 상태 존재.
 char LED_status[4] = {"OFF"};
 int sta = 0;
 
-String sub_topic_evt = "deviceid/Board_A/evt/#";
+void callback(char* topic, byte* payload, unsigned int length);
+
+String sub_topic_evt = "deviceid/Board_A/evt/#"; // 보드 B에 복사할 때 꼭 바꾸기
 String sub_topic_cmd = "deviceid/Board_A/cmd/#";
 
 String responseHTML = ""
@@ -67,9 +69,6 @@ String responseHTML = ""
     "<script>function removeSpaces(string) {"
     "   return string.split(' ').join('');"
     "}</script></html>";
-
-void state_led();
-void callback(char* topic, byte* payload, unsigned int length);
 
 // Saves string to EEPROM
 void SaveString(int startAt, const char* id) { 
@@ -103,7 +102,7 @@ void configWiFi() {
     
     WiFi.mode(WIFI_AP);
     WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-    WiFi.softAP("2017146010");     // change this to your portal SSID
+    WiFi.softAP("cmd_board_A");     // 보드 B에 복사할 때 꼭 바꾸기
     
     dnsServer.start(DNS_PORT, "*", apIP);
 
@@ -135,7 +134,11 @@ void load_config_wifi() {
     }
 }
 
-// neo pixel 연속으로 밝아지고 어두워짐
+IRAM_ATTR void GPIO0() {
+    SaveString(0, ""); // blank out the SSID field in EEPROM - ""넣어주면 이후 메모리 다 초기화인가보다
+    ESP.restart();
+}
+
 void neo_up_down() {
   int R, G, B = 0;
   for (int i = 0; i <255; i++) {
@@ -166,7 +169,6 @@ void neo_up_down() {
   }
 }
 
-// 조도 값에 따라 밝기 조절
 void neo(int val) {
     int R, B, G = 0;
     if (val < 50) {
@@ -186,21 +188,25 @@ void neo(int val) {
     pixels.show();
 }
 
-// 
-void neo_christmas() {
-    
+void state_led() {
+    if (critical_temp > temp && critical_env > env) {
+        sta = 0; 
+    } else if (critical_temp >temp || critical_env > env){
+        sta = 1;
+    } else {
+        sta = 2;
+    }
+    Serial.println(sta);
 }
 
-IRAM_ATTR void GPIO0() {
-    SaveString(0, ""); // blank out the SSID field in EEPROM - ""넣어주면 이후 메모리 다 초기화인가보다
-    ESP.restart();
-}
+
 
 void setup() {
     Serial.begin(115200);
     EEPROM.begin(EEPROM_LENGTH);
     pinMode(RESET_PIN, INPUT_PULLUP);
-    attachInterrupt(RESET_PIN, GPIO0, FALLING);    
+    attachInterrupt(RESET_PIN, GPIO0, FALLING);
+    
 
     while(!Serial);
     Serial.println();
@@ -224,20 +230,17 @@ void setup() {
     Serial.print("IP address: "); Serial.println(WiFi.localIP());
     Serial.print("mqtt address: "); Serial.println(mqtt);
 
-    //DNS
-    dnsServer.start(DNS_PORT, "*", WiFi.localIP());
-
     // mqtt
     client.setServer(mqtt, mqttPort);
     client.setCallback(callback);
 
     while (!client.connected()) {
         Serial.println("Connecting to MQTT...");
-        if (client.connect("LED_board")) {
+        if (client.connect("cmd_board_A")) { // 보드 B에 복사할 때 꼭 바꾸기
             Serial.println("connected");
             Serial.println("-------Sub Start-------");
             String topic_evt[3] = {"temp","env","val"}; // 센서값 3가지 구독
-            String topic_cmd[4] = {"temp","env","val","bab"}; // 명령값 4가지 구독
+            String topic_cmd[5] = {"temp","env","val","bab","cycle"}; // 명령값 4가지 구독
 
              for(int x = 0; x<3; x++) 
              {
@@ -247,7 +250,7 @@ void setup() {
                Serial.println(buf_evt.c_str());
              }
 
-             for(int x = 0; x<4; x++) 
+             for(int x = 0; x<5; x++) 
              {
                String buf_cmd = sub_topic_cmd;
                buf_cmd.replace("#",topic_cmd[x]);
@@ -266,7 +269,7 @@ void setup() {
 
     pixels = Adafruit_NeoPixel(ledNum, NEO_led, NEO_RGB + NEO_KHZ800); // Neo pixel 바형태
     State_pixels = Adafruit_NeoPixel(4, led_state, NEO_RGB + NEO_KHZ800); // Neo pixel 상태 표시
-    
+
     // ------------------------------
 
     Serial.println("Runtime Starting");  
@@ -274,6 +277,7 @@ void setup() {
 
 void loop() {
     client.loop();
+
     state_led();
 
     if (sta == 0) {
@@ -289,18 +293,7 @@ void loop() {
             State_pixels.setPixelColor(i, State_pixels.Color(255,0,0)); // 빨간색
         }
     }
-    if (LED_status == "off") {
-        pixels.clear();
-    }
-    else {
-        if (sta == 0) {
-            neo_up_down();
-        } else if (sta == 1) {
-            neo(val);
-        } else {
-            neo_christmas();
-        } 
-    }
+    
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -331,19 +324,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
         else if(strstr(topic,"bab"))
             feed_num++; // 먹이준 회수 1회 증가
         else if(strstr(topic,"LED"))
-            strcpy(LED_status,buf);
+            strcpy(LED_status,buf);   
+        else if(strstr(topic,"cycle"))
+            feed_cycle = atoi(buf); 
       }
     }
-}
-
-// 상태 led 표시
-void state_led() {
-    if (critical_temp > temp && critical_env > env) {
-        sta = 0; 
-    } else if (critical_temp >temp || critical_env > env){
-        sta = 1;
-    } else {
-        sta = 2;
-    }
-    Serial.println(sta);
 }
