@@ -15,8 +15,8 @@
 #define             RESET_PIN 0
 char                eRead[30];
 #if NO_CAP == 1
-  char                ssid[30] = "Phone";
-  char                password[30] = "1234567890";
+  char                ssid[30] = "U+Net9B20";
+  char                password[30] = "DD6B001103";
   char                mqtt[30] = "54.90.184.120"; 
 #else
   char                ssid[30];
@@ -37,6 +37,7 @@ void handleRoot();
 void handleNotFound();
 void Save_Info();
 void Bab();
+void Photo();
 String web_new();
 
 #define BOARD_NUM 2
@@ -52,9 +53,17 @@ int feed_cycle[BOARD_NUM]; // 먹이 주는 주기
 char *status[BOARD_NUM];
 char *status_color[3] = {"green","yellow","red"}; // 3가지 상태 존재.
 char LED_status[BOARD_NUM][4] = {"OFF","OFF"};
+char photo_url[2][80] = {"/","/"}; // 사진 url을 담는 용도 (올라온 사진이 없다면 그저 새로고침이 됨)
 
 String sub_topic[2] = {"deviceid/Board_A/evt/#","deviceid/Board_B/evt/#"};
 String pub_topic[2] = {"deviceid/Board_A/cmd/#","deviceid/Board_B/cmd/#"};
+
+char photo[] = "" // 값 최신화를 하지 않고도 최신 사진을 바로 볼수 있게 한 것
+"<!DOCTYPE html><html><head>"
+"<title>META Tag  Refresh</title>"
+"<meta http-equiv='content-type' content='text/html; charset=euc-kr'>"
+"<meta http-equiv='refresh' content='0; url=%s'></head>";
+
 
 char myWeb_01[] =""
     "<!DOCTYPE html><html>"
@@ -64,12 +73,13 @@ char myWeb_01[] =""
     "<link href='https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&display=swap' rel='stylesheet'>"
     "<style>body{background-image : url('https://vrthumb.clipartkorea.co.kr/2017/04/03/ti237a8402.jpg');background-repeat : no-repeat;background-size : cover;}"
     "@media(min-width:300px){div{width: 100%%; height: 60%%;}}@media(min-width:1000px){div{width: 90%%; height: 60%%;}}@media(min-width:1200px){div{width: 80%%; height: 60%%;}}"
-    "@media(min-width:1500px){div{width: 65%%; height: 60%%;}}@media(min-width:1820px){div{width: 50%%; height: 60%%;}}"
+    "@media(min-width:1500px){div{width: 65%%; height: 60%%;}}@media(min-width:1820px){div{width: 50%%; height: 50%%;}}"
     "div.left {width: 50%%; float: left;box-sizing: border-box;}"
     "div.right {width: 50%%; float: right;box-sizing: border-box;}"
     "div.parent{width: 77%%;height: 10%%;}div.first {float: left;width:50%%;box-sizing: border-box;}div.second{float: right;width:50%%;box-sizing: border-box;}</style></head>"
     "<body><center><p style='font-weight:700; font-size:100px; font-family:Nanum Pen Script; color:rgb(54, 121, 184); '>AQUARIUM WEB</p>"
     "<div><div class='left'><table border='3' width ='500' height='300' align = 'center'>"
+    "<p style='font-weight:900'>수족관 상태</p>"
     "<th></th><th align = 'center' style='color:black'>Board_A</th><th align = 'center' style='color:black'>Board_B</th>"
     "<tr bgcolor=skyblue align = 'center' style='font-weight:700; color: black;'><td>현재 온도</td><td>%.1f</td><td>%.1f</td></tr>"
     "<tr align = 'center' style='font-weight:700; color: black; '><td>임계 온도</td><td>%.1f</td><td>%.1f</td></tr>"
@@ -99,8 +109,13 @@ char myWeb_02[] =""
     "<div class='second'><form action='/'><p><input type='submit' style='WIDTH: 133pt; HEIGHT: 30pt' value='값 최신화'></p></form></div></div>"
     "<div class='parent'><div class='first'><form action='/Bab'>"
     "<p><input type='submit' style='WIDTH: 133pt; HEIGHT: 30pt' name='Board' value='Feed_A'></p></div> "
-    "<div class='second'><p><input type='submit' style='WIDTH: 133pt; HEIGHT: 30pt' name='Board' value='Feed_B'></p> </div></div></form>"
-    "</div></div></center></body>"
+    "<div class='second'><p><input type='submit' style='WIDTH: 133pt; HEIGHT: 30pt' name='Board' value='Feed_B'></p> </div></div></form>";
+   
+ char myWeb_03[] =""  
+    "<p> </p><div class='parent'><div class='first'><form action='/Photo'>"
+    "<p><input type='submit' style='WIDTH: 133pt; HEIGHT: 30pt' name='Photo' value='Photo_A'></p></div></form>"
+    "<div class='second'><form action='/Photo'><p><input type='submit' style='WIDTH: 133pt; HEIGHT: 30pt' name='Photo' value='Photo_B'></p></form></div></div>"
+     "</div></div></center></body>"
     "<script>function removeSpaces(string) {return string.split(' ').join('');}</script></html>";
 
 
@@ -204,17 +219,17 @@ void setup() {
     Serial.println("");
 
     // Wait for connection -OLED 사용 불가
-    // display.init();
-    // display.setFont(ArialMT_Plain_16);
-    // display.flipScreenVertically();
-    // display.drawString(0,0,ssid);
-    // display.drawString(0,14,"connecting"); // 연결중임을 OLED에 표시
+    display.init();
+    display.setFont(ArialMT_Plain_16);
+    display.flipScreenVertically();
+    display.drawString(0,0,ssid);
+    display.drawString(0,14,"connecting"); // 연결중임을 OLED에 표시
     int i = 0;
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
-        // display.drawString(i*3+75,14,".");
-        // display.display();
+        display.drawString(i*3+75,14,".");
+        display.display();
         if(i++ > 15 && !NO_CAP) {
             configWiFi();
         }
@@ -235,10 +250,10 @@ void setup() {
         if (client.connect("control_board")) {
             Serial.println("connected");
             Serial.println("-------Sub Start-------");
-            String topic[3] = {"temp","env","val"}; // 보드A,B 각각 3가지 요소 구독
+            String topic[4] = {"temp","env","val","photo"}; // 보드A,B 각각 3가지 요소 구독
             for(int i = 0; i<2; i++)
             {
-              for(int x = 0; x<3; x++)
+              for(int x = 0; x<4; x++)
               {
                 String buf = sub_topic[i];
                 buf.replace("#",topic[x]);
@@ -257,17 +272,18 @@ void setup() {
     webServer.on("/", handleRoot);
     webServer.on("/Save_Info",Save_Info);
     webServer.on("/Bab",Bab);
+    webServer.on("/Photo",Photo);
     webServer.onNotFound(handleNotFound);
     webServer.begin(); // 서버 시작
     Serial.println("HTTP server started");
 
     // OLED - mDNS가 안돼서 OLED를 통해 IP주소를 받고 웹 접속 - OLED 사용 불가 (EEPROM이랑 동시사용 안됨)
-    // display.init();
-    // display.setFont(ArialMT_Plain_16);
-    // display.flipScreenVertically();
-    // display.drawString(0,10,WiFi.localIP().toString());
-    // display.display();
-    // Serial.println("OLED OUTPUT IP");
+    display.init();
+    display.setFont(ArialMT_Plain_16);
+    display.flipScreenVertically();
+    display.drawString(0,10,WiFi.localIP().toString());
+    display.display();
+    Serial.println("OLED OUTPUT IP");
 
     Serial.println("Runtime Starting");  
 }
@@ -279,7 +295,7 @@ void loop() {
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
-    char buf[10] = {0,};
+    char buf[80] = {0,};
     Serial.println(topic);
     for(int i = 0; i<length; i++)
       buf[i] = (char)payload[i];
@@ -296,6 +312,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
         val[board_num] = atoi(buf);
       else if(strstr(topic,"env"))
         env[board_num] = atoi(buf);
+      else if(strstr(topic,"photo"))
+        strcpy(photo_url[board_num],buf); 
     }
 }
 
@@ -392,6 +410,18 @@ void handleNotFound(){
   webServer.send(404,"text/html",message);
 }
 
+void Photo(){
+  char buf[1000] = {0,};
+  int board_num = 0;
+  if(!strcmp(webServer.arg("Photo").c_str(),"Photo_B")) // 보드 선택
+    board_num = 1;
+
+
+  sprintf(buf,photo,photo_url[board_num]);
+  
+  webServer.send(200,"text/html", buf);
+}
+
 String web_new()
 {
   for(int i = 0; i<2; i++)
@@ -407,12 +437,12 @@ String web_new()
   sprintf(buf,myWeb_01,temp[0],temp[1],critical_temp[0],critical_temp[1],env[0],env[1],critical_env[0],critical_env[1],val[0],val[1]);// 인수가 10개 이상?이면 잘 안들어가서 나눠줌
   String message = String(buf);                                                                                                       // %까지 전달하기 위해선 %%를 써줘야함.
   sprintf(buf,myWeb_02,critical_val[0],LED_status[0],critical_val[1],LED_status[1],feed_cycle[0],feed_cycle[1],feed_num[0],feed_num[1],status[0],status[1]); 
+  message += String(buf); 
+  sprintf(buf,myWeb_03); 
   message += String(buf);                                                                                                         
   return message;
 }
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-
 
 
 
