@@ -27,15 +27,17 @@ const int           mqttPort = 1883;
 const byte DNS_PORT = 53;
 
 #define NEO_led   15 // LED on/off neopixel
-#define led_state 16 // State Led
 #define ledNum    72 // neo pixel 개수
 
-Adafruit_NeoPixel pixels;
-Adafruit_NeoPixel State_pixels;
+#define R         2
+#define Y         3
+#define G         4
+
+Adafruit_NeoPixel pixels(ledNum, NEO_led, NEO_RGB + NEO_KHZ800);
 
 WiFiClient espClient;
 PubSubClient client(espClient);
-ESP8266WebServer    webServer(80);
+ESP8266WebServer    webServer(8);
 DNSServer dnsServer;
 
 
@@ -50,7 +52,8 @@ int feed_cycle; // 먹이 주는 주기
 char *status;
 //char *status_color[3] = {"green","yellow","red"}; // 3가지 상태 존재.
 char LED_status[4] = {"OFF"};
-int sta = 0;
+int sta_temp = 0;
+int sta_env = 0;
 
 void callback(char* topic, byte* payload, unsigned int length);
 
@@ -138,84 +141,112 @@ IRAM_ATTR void GPIO0() {
     SaveString(0, ""); // blank out the SSID field in EEPROM - ""넣어주면 이후 메모리 다 초기화인가보다
     ESP.restart();
 }
-
+// 밝기가 커지고 작아진다.
 void neo_up_down() {
-  int R = 0;
-  int G = 0;
-  int B = 0;
-  for (int i = 0; i <255; i++) {
-    if (i % 30 == 0) {
-      R = i;
-    } else if (i % 30 == 10) {
-      B = i;
-    } else if (i % 30 == 20) {
-      G = i;
+    uint16_t i, j;
+
+    for(j=0; j<256; j++) {
+        for(i=0; i<pixels.numPixels(); i++) {
+            pixels.setPixelColor(i, pixels.Color(0,0,0,j));
+        }
+        pixels.show();
+        delay(20);
     }
-    for (int j = 0; j < ledNum; j++) {
-      pixels.setPixelColor(j, pixels.Color(R,G,B));
+    for(j=255; j>=0; j--) {
+        for(i=0; i<pixels.numPixels(); i++) {
+            pixels.setPixelColor(i, pixels.Color(0,0,0,j));
+        }
+        pixels.show();
+        delay(20);
     }
-    pixels.show();
+}
+    
+// 무지개 색 변화
+uint32_t Wheel(byte WheelPos) {
+  WheelPos = 255 - WheelPos;
+  if(WheelPos < 85) {
+    return pixels.Color(255 - WheelPos * 3, 0, WheelPos * 3);
   }
-  for (int i = 255; i > 0; i--) {
-    if (i % 30 == 0) {
-      R = i;
-    } else if (i % 30 == 10) {
-      B = i;
-    } else if (i % 30 == 20) {
-      G = i;
-    }
-    for (int j = 0; j < ledNum; j++) {
-      pixels.setPixelColor(j, pixels.Color(R,G,B));
+  if(WheelPos < 170) {
+    WheelPos -= 85;
+    return pixels.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+  WheelPos -= 170;
+  return pixels.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+}
+
+void rainbow() {
+  uint16_t i, j;
+
+  for(j=0; j<256; j++) {
+    for(i=0; i<pixels.numPixels(); i++) {
+      pixels.setPixelColor(i, Wheel((i+j) & 255));
     }
     pixels.show();
+    delay(20);
   }
 }
 
-void neo(int val) {
-    int R = 0;
-    int G = 0;
-    int B = 0;
-    if (val < 50) {
-        R = 255;
-        B = 255;
-        G = 255;
-    } else if (val < 150) {
-        R = 200;
-        B = 200;
-        G = 200;
-    } else if (val < 300) {
-        R = 150;
-        G = 150;
-        B = 150;
-    } else if (val < 400) {
-        R = 50;
-        G = 50;
-        B = 50;
-    } else if (val < 500) {
-        R = 0;
-        B = 0;
-        G = 0;
+// 깜빡거리는 조명
+void christmas() {
+    uint16_t i, j;
+    uint16_t k = random(3,8);
+
+    for(j=0; j<256; j++) {
+        for(i=0; i<pixels.numPixels(); i++) {
+            if ( i %  k == 0) {
+                pixels.setPixelColor(i, Wheel((i+j) & 255));
+            }
+        }
+        pixels.show();
+        delay(20);
     }
-    for (int i = 0; i < ledNum; i++) {        
-        pixels.setPixelColor(i, pixels.Color(R,G,B));
+}
+
+// 3개 간격으로 돌기
+void threeled() {
+    uint16_t i, j , k;
+    
+    for(k = 0 ; k < 3 ; k++) {
+        for(j=0; j<256; j++) {
+            for(i=0; i<pixels.numPixels(); i++) {
+                if ( i %  3 == k) {
+                    pixels.setPixelColor(i, Wheel((i+j) & 255));
+                }
+            }
+            pixels.show();
+            delay(20);
+        }
     }
-    pixels.show();
+}
+
+
+//  조도 값에 따라 조명의 모드가 달라진다.
+void light_neo() {
+   if (val < 50) {
+       rainbow();
+   } else if (val < 200) {
+       neo_up_down();
+   } else if (val < 400) {
+       christmas();
+   } else if (val < 600) {
+       threeled();
+   }
 }
 
 void state_led() {
-    if (critical_temp > temp && critical_env > env) {
-        sta = 0; 
-    } else if (critical_temp >temp){
-        sta = 1;
-    } else if (critical_env > env){
-        sta = 2;
+    if (critical_temp > temp) {
+        sta_temp = 0; 
     } else {
-        sta = 3;
+        sta_temp = 1;
     }
-    Serial.println(sta);
+
+    if (critical_env > env){
+        sta_env = 0;
+    } else {
+        sta_env = 1;
+    }
 }
-
-
 
 void setup() {
     Serial.begin(115200);
@@ -252,7 +283,7 @@ void setup() {
 
     while (!client.connected()) {
         Serial.println("Connecting to MQTT...");
-        if (client.connect("cmd_board_A")) { // 보드 B에 복사할 때 꼭 바꾸기
+        if (client.connect("cmd_board_yun")) { // 보드 B에 복사할 때 꼭 바꾸기
             Serial.println("connected");
             Serial.println("-------Sub Start-------");
             String topic_evt[3] = {"temp","env","val"}; // 센서값 3가지 구독
@@ -283,40 +314,40 @@ void setup() {
     // ------------------------------
     // 센서 동작 관련 세팅하는 곳
 
-    pixels = Adafruit_NeoPixel(ledNum, NEO_led, NEO_RGB + NEO_KHZ800); // Neo pixel 바형태
-    State_pixels = Adafruit_NeoPixel(4, led_state, NEO_RGB + NEO_KHZ800); // Neo pixel 상태 표시
+    pixels.begin(); // Neo pixel 바형태
+    pinMode(R , OUTPUT);
+    pinMode(Y, OUTPUT);
+    pinMode(G, OUTPUT);
 
     // ------------------------------
 
-    Serial.println("Runtime Starting");  
+    Serial.println("Runtime Starting");
 }
 
 void loop() {
     client.loop();
-
     state_led();
-
-    if (sta == 0) {
-        for (int i = 0; i < 4; i++) {        
-            State_pixels.setPixelColor(i, State_pixels.Color(0,255,0)); // 초록색
-        }
-    } else if (sta == 1) {
-        for (int i = 0; i < 4; i++) {
-            if (i == 1 || i == 2) {
-                State_pixels.setPixelColor(i, State_pixels.Color(255,255,0)); // 노란색
-            }
-        }
-    } else if (sta == 2){
-        for (int i = 0; i < 4; i++) {
-            if (i == 1 || i == 4){
-                State_pixels.setPixelColor(i, State_pixels.Color(255,255,0)); // 노란색
-            }    
-            
-        }
+    Serial.println(sta_temp);
+    Serial.println(sta_env);
+    if ((sta_temp == 0) && (sta_env == 0)) {
+        digitalWrite(R, LOW);
+        digitalWrite(Y, LOW);
+        digitalWrite(G, HIGH);
+    } else if ((sta_temp == 0) || (sta_env == 0)) {
+        digitalWrite(R, LOW);
+        digitalWrite(Y, HIGH);
+        digitalWrite(G, LOW);
     } else {
-        for (int i = 0; i < 4; i++) {
-            State_pixels.setPixelColor(i, State_pixels.Color(255,0,0)); // 빨간색
-        }
+        digitalWrite(R, HIGH);
+        digitalWrite(Y, LOW);
+        digitalWrite(G, LOW);
+    }
+
+
+    if (LED_status == "OFF") {
+        pixels.clear();
+    } else {
+        light_neo();
     }
 }
 
