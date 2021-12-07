@@ -15,8 +15,8 @@
 #define             RESET_PIN 0
 char                eRead[30];
 #if NO_CAP == 1
-  char                ssid[30] = "IoT518";
-  char                password[30] = "iot123456";
+  char                ssid[30] = "Phone";
+  char                password[30] = "1234567890";
   char                mqtt[30] = "54.90.184.120"; 
 #else
   char                ssid[30];
@@ -29,9 +29,9 @@ const byte DNS_PORT = 53;
 #define NEO_led   15 // LED on/off neopixel
 #define ledNum    72 // neo pixel 개수
 
-#define R         2
-#define Y         3
-#define G         4
+#define Rled         2
+#define Yled         13
+#define Gled         12
 
 Adafruit_NeoPixel pixels(ledNum, NEO_led, NEO_RGB + NEO_KHZ800);
 
@@ -105,7 +105,7 @@ void configWiFi() {
     
     WiFi.mode(WIFI_AP);
     WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-    WiFi.softAP("cmd_board_A");     // 보드 B에 복사할 때 꼭 바꾸기
+    WiFi.softAP("cmd_board_yun");     // 보드 B에 복사할 때 꼭 바꾸기
     
     dnsServer.start(DNS_PORT, "*", apIP);
 
@@ -145,19 +145,12 @@ IRAM_ATTR void GPIO0() {
 void neo_up_down() {
     uint16_t i, j;
 
-    for(j=0; j<256; j++) {
+    for(j=0; j<256; j += 10) {
         for(i=0; i<pixels.numPixels(); i++) {
-            pixels.setPixelColor(i, pixels.Color(0,0,0,j));
+            pixels.setPixelColor(i, pixels.Color(j,j,j));
         }
         pixels.show();
-        delay(20);
-    }
-    for(j=255; j>=0; j--) {
-        for(i=0; i<pixels.numPixels(); i++) {
-            pixels.setPixelColor(i, pixels.Color(0,0,0,j));
-        }
-        pixels.show();
-        delay(20);
+        delay(50);
     }
 }
     
@@ -201,6 +194,7 @@ void christmas() {
         pixels.show();
         delay(20);
     }
+    pixels.clear();
 }
 
 // 3개 간격으로 돌기
@@ -217,6 +211,7 @@ void threeled() {
             pixels.show();
             delay(20);
         }
+        pixels.clear();
     }
 }
 
@@ -224,24 +219,24 @@ void threeled() {
 //  조도 값에 따라 조명의 모드가 달라진다.
 void light_neo() {
    if (val < 50) {
-       rainbow();
-   } else if (val < 200) {
        neo_up_down();
+   } else if (val < 200) {
+       rainbow();
    } else if (val < 400) {
-       christmas();
-   } else if (val < 600) {
        threeled();
+   } else if (val < 600) {
+       christmas();
    }
 }
 
 void state_led() {
-    if (critical_temp > temp) {
+    if (critical_temp >= temp) {
         sta_temp = 0; 
     } else {
         sta_temp = 1;
     }
 
-    if (critical_env > env){
+    if (critical_env >= env){
         sta_env = 0;
     } else {
         sta_env = 1;
@@ -315,9 +310,9 @@ void setup() {
     // 센서 동작 관련 세팅하는 곳
 
     pixels.begin(); // Neo pixel 바형태
-    pinMode(R , OUTPUT);
-    pinMode(Y, OUTPUT);
-    pinMode(G, OUTPUT);
+    pinMode(Rled, OUTPUT);
+    pinMode(Yled, OUTPUT);
+    pinMode(Gled, OUTPUT);
 
     // ------------------------------
 
@@ -326,26 +321,31 @@ void setup() {
 
 void loop() {
     client.loop();
+    Serial.println(val);
     state_led();
     Serial.println(sta_temp);
     Serial.println(sta_env);
     if ((sta_temp == 0) && (sta_env == 0)) {
-        digitalWrite(R, LOW);
-        digitalWrite(Y, LOW);
-        digitalWrite(G, HIGH);
+        digitalWrite(Rled, LOW);
+        digitalWrite(Yled, LOW);
+        digitalWrite(Gled, HIGH);
     } else if ((sta_temp == 0) || (sta_env == 0)) {
-        digitalWrite(R, LOW);
-        digitalWrite(Y, HIGH);
-        digitalWrite(G, LOW);
+        digitalWrite(Rled, LOW);
+        digitalWrite(Yled, HIGH);
+        digitalWrite(Gled, LOW);
     } else {
-        digitalWrite(R, HIGH);
-        digitalWrite(Y, LOW);
-        digitalWrite(G, LOW);
+        digitalWrite(Rled, HIGH);
+        digitalWrite(Yled, LOW);
+        digitalWrite(Gled, LOW);
     }
 
 
-    if (LED_status == "OFF") {
-        pixels.clear();
+    Serial.println(LED_status);
+    if (!strcmp(LED_status,"OFF")) {
+        for(int i=0; i<pixels.numPixels(); i++) {
+            pixels.setPixelColor(i, pixels.Color(0,0,0));
+        }
+        pixels.show();
     } else {
         light_neo();
     }
