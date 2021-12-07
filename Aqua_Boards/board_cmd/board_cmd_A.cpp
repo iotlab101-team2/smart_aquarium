@@ -7,6 +7,7 @@
 #include <ESP8266WebServer.h>
 
 #include <PubSubClient.h> // mqtt 헤더
+#include <Adafruit_NeoPixel.h> // Neopixel 헤더
 
 #define NO_CAP 1
 
@@ -14,8 +15,8 @@
 #define             RESET_PIN 0
 char                eRead[30];
 #if NO_CAP == 1
-  char                ssid[30] = "U+Net9B20";
-  char                password[30] = "DD6B001103";
+  char                ssid[30] = "Phone";
+  char                password[30] = "1234567890";
   char                mqtt[30] = "54.90.184.120"; 
 #else
   char                ssid[30];
@@ -25,9 +26,18 @@ char                eRead[30];
 const int           mqttPort = 1883;
 const byte DNS_PORT = 53;
 
+#define NEO_led   15 // LED on/off neopixel
+#define ledNum    72 // neo pixel 개수
+
+#define Rled         2
+#define Yled         13
+#define Gled         12
+
+Adafruit_NeoPixel pixels(ledNum, NEO_led, NEO_RGB + NEO_KHZ800);
+
 WiFiClient espClient;
 PubSubClient client(espClient);
-ESP8266WebServer    webServer(80);
+ESP8266WebServer    webServer(8);
 DNSServer dnsServer;
 
 
@@ -40,8 +50,10 @@ int critical_val; // 임계 조도
 int feed_num; // 먹이 준 회수
 int feed_cycle; // 먹이 주는 주기
 char *status;
-char *status_color[3] = {"green","yellow","red"}; // 3가지 상태 존재.
+//char *status_color[3] = {"green","yellow","red"}; // 3가지 상태 존재.
 char LED_status[4] = {"OFF"};
+int sta_temp = 0;
+int sta_env = 0;
 
 void callback(char* topic, byte* payload, unsigned int length);
 
@@ -93,7 +105,7 @@ void configWiFi() {
     
     WiFi.mode(WIFI_AP);
     WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-    WiFi.softAP("cmd_board_A");     // 보드 B에 복사할 때 꼭 바꾸기
+    WiFi.softAP("cmd_board_yun");     // 보드 B에 복사할 때 꼭 바꾸기
     
     dnsServer.start(DNS_PORT, "*", apIP);
 
@@ -128,6 +140,107 @@ void load_config_wifi() {
 IRAM_ATTR void GPIO0() {
     SaveString(0, ""); // blank out the SSID field in EEPROM - ""넣어주면 이후 메모리 다 초기화인가보다
     ESP.restart();
+}
+// 밝기가 커지고 작아진다.
+void neo_up_down() {
+    uint16_t i, j;
+
+    for(j=0; j<256; j += 10) {
+        for(i=0; i<pixels.numPixels(); i++) {
+            pixels.setPixelColor(i, pixels.Color(j,j,j));
+        }
+        pixels.show();
+        delay(50);
+    }
+}
+    
+// 무지개 색 변화
+uint32_t Wheel(byte WheelPos) {
+  WheelPos = 255 - WheelPos;
+  if(WheelPos < 85) {
+    return pixels.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+  }
+  if(WheelPos < 170) {
+    WheelPos -= 85;
+    return pixels.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+  WheelPos -= 170;
+  return pixels.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+}
+
+void rainbow() {
+  uint16_t i, j;
+
+  for(j=0; j<256; j++) {
+    for(i=0; i<pixels.numPixels(); i++) {
+      pixels.setPixelColor(i, Wheel((i+j) & 255));
+    }
+    pixels.show();
+    delay(20);
+  }
+}
+
+// 깜빡거리는 조명
+void christmas() {
+    uint16_t i, j;
+    uint16_t k = random(3,8);
+
+    for(j=0; j<256; j++) {
+        for(i=0; i<pixels.numPixels(); i++) {
+            if ( i %  k == 0) {
+                pixels.setPixelColor(i, Wheel((i+j) & 255));
+            }
+        }
+        pixels.show();
+        delay(20);
+    }
+    pixels.clear();
+}
+
+// 3개 간격으로 돌기
+void threeled() {
+    uint16_t i, j , k;
+    
+    for(k = 0 ; k < 3 ; k++) {
+        for(j=0; j<256; j++) {
+            for(i=0; i<pixels.numPixels(); i++) {
+                if ( i %  3 == k) {
+                    pixels.setPixelColor(i, Wheel((i+j) & 255));
+                }
+            }
+            pixels.show();
+            delay(20);
+        }
+        pixels.clear();
+    }
+}
+
+
+//  조도 값에 따라 조명의 모드가 달라진다.
+void light_neo() {
+   if (val < 50) {
+       neo_up_down();
+   } else if (val < 200) {
+       rainbow();
+   } else if (val < 400) {
+       threeled();
+   } else if (val < 600) {
+       christmas();
+   }
+}
+
+void state_led() {
+    if (critical_temp >= temp) {
+        sta_temp = 0; 
+    } else {
+        sta_temp = 1;
+    }
+
+    if (critical_env >= env){
+        sta_env = 0;
+    } else {
+        sta_env = 1;
+    }
 }
 
 void setup() {
@@ -165,7 +278,7 @@ void setup() {
 
     while (!client.connected()) {
         Serial.println("Connecting to MQTT...");
-        if (client.connect("cmd_board_A")) { // 보드 B에 복사할 때 꼭 바꾸기
+        if (client.connect("cmd_board_yun")) { // 보드 B에 복사할 때 꼭 바꾸기
             Serial.println("connected");
             Serial.println("-------Sub Start-------");
             String topic_evt[3] = {"temp","env","val"}; // 센서값 3가지 구독
@@ -196,14 +309,46 @@ void setup() {
     // ------------------------------
     // 센서 동작 관련 세팅하는 곳
 
+    pixels.begin(); // Neo pixel 바형태
+    pinMode(Rled, OUTPUT);
+    pinMode(Yled, OUTPUT);
+    pinMode(Gled, OUTPUT);
 
     // ------------------------------
 
-    Serial.println("Runtime Starting");  
+    Serial.println("Runtime Starting");
 }
 
 void loop() {
     client.loop();
+    Serial.println(val);
+    state_led();
+    Serial.println(sta_temp);
+    Serial.println(sta_env);
+    if ((sta_temp == 0) && (sta_env == 0)) {
+        digitalWrite(Rled, LOW);
+        digitalWrite(Yled, LOW);
+        digitalWrite(Gled, HIGH);
+    } else if ((sta_temp == 0) || (sta_env == 0)) {
+        digitalWrite(Rled, LOW);
+        digitalWrite(Yled, HIGH);
+        digitalWrite(Gled, LOW);
+    } else {
+        digitalWrite(Rled, HIGH);
+        digitalWrite(Yled, LOW);
+        digitalWrite(Gled, LOW);
+    }
+
+
+    Serial.println(LED_status);
+    if (!strcmp(LED_status,"OFF")) {
+        for(int i=0; i<pixels.numPixels(); i++) {
+            pixels.setPixelColor(i, pixels.Color(0,0,0));
+        }
+        pixels.show();
+    } else {
+        light_neo();
+    }
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -240,5 +385,3 @@ void callback(char* topic, byte* payload, unsigned int length) {
       }
     }
 }
-
-
